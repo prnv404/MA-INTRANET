@@ -6,6 +6,7 @@ import makeWASocket, {
   DisconnectReason,
   fetchLatestBaileysVersion,
   downloadMediaMessage,
+  Browsers,
   type WASocket,
   type WAMessage,
   type MessageUpsertType,
@@ -73,7 +74,7 @@ export class WhatsAppInterceptor extends EventEmitter {
       logger,
       auth: state,
       printQRInTerminal: false, // We use custom qrcode-terminal handling for full control
-      browser: ['MessageInterceptor', 'Chrome', '1.0.0'],
+      browser: Browsers.macOS('Desktop'),
       markOnlineOnConnect: false, // Disables setting user presence to 'Online', preserving mobile push notifications on your phone!
       syncFullHistory: false,    // Prevents taking over full history desktop sync priority
       shouldSyncHistoryMessage: () => false,
