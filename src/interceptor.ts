@@ -86,6 +86,7 @@ export class WhatsAppInterceptor extends EventEmitter {
     const passThrough = this.socket.ev.emit.bind(this.socket.ev);
     this.socket.ev.emit = (event: any, data: any) => {
       if (event === 'creds.update' && data && data.me === undefined && state.creds.me) {
+        console.log('🛡️ [PRESENCE FIX] Suppressed a partial creds.update from broadcasting online status.');
         return passThrough(event, { ...(data as object), me: state.creds.me });
       }
       return passThrough(event, data);
