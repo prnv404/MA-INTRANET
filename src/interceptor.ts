@@ -80,6 +80,18 @@ export class WhatsAppInterceptor extends EventEmitter {
       shouldSyncHistoryMessage: () => false,
     });
 
+    // --- FIX FOR NOTIFICATION BUG (Baileys Issue #2553) ---
+    // Prevents Baileys from accidentally broadcasting an "online" presence 
+    // when it receives partial credential updates, which stops phone notifications.
+    const passThrough = this.socket.ev.emit.bind(this.socket.ev);
+    this.socket.ev.emit = (event: any, data: any) => {
+      if (event === 'creds.update' && data && data.me === undefined && state.creds.me) {
+        return passThrough(event, { ...(data as object), me: state.creds.me });
+      }
+      return passThrough(event, data);
+    };
+    // ------------------------------------------------------
+
     // Save auth credentials automatically when updated
     this.socket.ev.on('creds.update', saveCreds);
 
