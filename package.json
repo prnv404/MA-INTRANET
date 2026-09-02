@@ -1,0 +1,32 @@
+{
+  "name": "whatsapp-automation",
+  "module": "index.ts",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "start": "bun run index.ts",
+    "dev": "bun run --watch index.ts",
+    "typecheck": "bun x tsc --noEmit",
+    "test": "bun test",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "bun run src/db/migrate.ts",
+    "db:push": "drizzle-kit push",
+    "db:studio": "drizzle-kit studio"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "@types/node": "^26.4.0",
+    "@types/qrcode-terminal": "^0.12.2",
+    "drizzle-kit": "^0.30.4"
+  },
+  "peerDependencies": {
+    "typescript": "^5"
+  },
+  "dependencies": {
+    "@whiskeysockets/baileys": "^7.0.0-rc14",
+    "drizzle-orm": "^0.39.3",
+    "pino": "^10.3.1",
+    "postgres": "^3.4.5",
+    "qrcode-terminal": "^0.12.0"
+  }
+}
