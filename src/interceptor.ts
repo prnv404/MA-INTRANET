@@ -83,7 +83,7 @@ export class WhatsAppInterceptor extends EventEmitter {
     this.socket.ev.on('creds.update', saveCreds);
 
     // Handle Connection State Updates
-    this.socket.ev.on('connection.update', (update) => {
+    this.socket.ev.on('connection.update', async (update) => {
       const { connection, lastDisconnect, qr } = update;
 
       if (qr && this.options.printQRInTerminal) {
@@ -115,6 +115,14 @@ export class WhatsAppInterceptor extends EventEmitter {
         console.log('\n✅ [CONNECTED] WhatsApp Message Interceptor is now active and monitoring messages!');
         console.log(`👤 Connected as Account JID: ${userJid}`);
         console.log('📡 Waiting for incoming WhatsApp messages...\n');
+        
+        // Force offline status to ensure mobile push notifications still work
+        try {
+          await this.socket?.sendPresenceUpdate('unavailable');
+        } catch (e) {
+          console.error('Failed to set presence to unavailable', e);
+        }
+
         this.emit('connected', userJid);
       }
     });

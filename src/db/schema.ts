@@ -186,6 +186,7 @@ export const boats = pgTable('boats', {
   operatorName: text('operator_name'),
   location: text('location'),
   basePrice: numeric('base_price'),
+  photos: jsonb('photos').default([]),
   status: boatStatusEnum('status').default('available'),
   createdAt: timestamp('created_at').defaultNow(),
   updatedAt: timestamp('updated_at').defaultNow(),
