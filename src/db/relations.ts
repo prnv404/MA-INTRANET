@@ -8,9 +8,22 @@ import {
   salesReps,
   boats,
   bookings,
+  aiAnalysis,
+  whatsappContacts,
 } from './schema.js';
 
-export const customersRelations = relations(customers, ({ many }) => ({
+export const whatsappContactsRelations = relations(whatsappContacts, ({ one }) => ({
+  customer: one(customers, {
+    fields: [whatsappContacts.id],
+    references: [customers.whatsappContactId],
+  }),
+}));
+
+export const customersRelations = relations(customers, ({ one, many }) => ({
+  whatsappContact: one(whatsappContacts, {
+    fields: [customers.whatsappContactId],
+    references: [whatsappContacts.id],
+  }),
   conversations: many(conversations),
   messages: many(messages),
   bookings: many(bookings),
@@ -43,10 +56,11 @@ export const conversationsRelations = relations(
     }),
     events: many(conversationEvents),
     bookings: many(bookings),
+    aiAnalyses: many(aiAnalysis),
   })
 );
 
-export const messagesRelations = relations(messages, ({ one }) => ({
+export const messagesRelations = relations(messages, ({ one, many }) => ({
   conversation: one(conversations, {
     fields: [messages.conversationId],
     references: [conversations.conversationId],
@@ -55,6 +69,7 @@ export const messagesRelations = relations(messages, ({ one }) => ({
     fields: [messages.customerId],
     references: [customers.customerId],
   }),
+  aiAnalyses: many(aiAnalysis),
 }));
 
 export const conversationStateRelations = relations(
@@ -97,5 +112,16 @@ export const bookingsRelations = relations(bookings, ({ one }) => ({
   boat: one(boats, {
     fields: [bookings.boatId],
     references: [boats.boatId],
+  }),
+}));
+
+export const aiAnalysisRelations = relations(aiAnalysis, ({ one }) => ({
+  conversation: one(conversations, {
+    fields: [aiAnalysis.conversationId],
+    references: [conversations.conversationId],
+  }),
+  triggerMessage: one(messages, {
+    fields: [aiAnalysis.triggerMessageId],
+    references: [messages.messageId],
   }),
 }));

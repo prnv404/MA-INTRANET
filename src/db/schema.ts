@@ -43,11 +43,29 @@ export const leadStageEnum = pgEnum('lead_stage_enum', [
   'lost',
 ]);
 
+export const leadStatusEnum = pgEnum('lead_status_enum', [
+  'new',
+  'interested',
+  'inactive',
+  'junk',
+  'lost',
+  'booked',
+]);
+
 export const senderTypeEnum = pgEnum('sender_type_enum', [
   'customer',
   'sales_rep',
   'bot',
   'system',
+]);
+
+export const whatsappContactTypeEnum = pgEnum('whatsapp_contact_type_enum', [
+  'unknown',
+  'customer',
+  'boat_owner',
+  'friend',
+  'personal',
+  'ignored',
 ]);
 
 export const directionEnum = pgEnum('direction_enum', [
@@ -82,6 +100,8 @@ export const eventTypeEnum = pgEnum('event_type_enum', [
   'booking_cancelled',
   'lead_lost',
   'lead_reactivated',
+  'customer_objected',
+  'negotiation_started',
 ]);
 
 export const performedByTypeEnum = pgEnum('performed_by_type_enum', [
@@ -115,9 +135,23 @@ export const boatStatusEnum = pgEnum('boat_status_enum', [
 // TABLES
 // ==========================================
 
-// 1. CUSTOMERS
+// 1. WHATSAPP_CONTACTS
+export const whatsappContacts = pgTable('whatsapp_contacts', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  whatsappJid: text('whatsapp_jid').notNull().unique(),
+  phoneNumber: text('phone_number'),
+  displayName: text('display_name'),
+  contactType: whatsappContactTypeEnum('contact_type').default('unknown'),
+  crmEnabled: boolean('crm_enabled').default(false),
+  aiEnabled: boolean('ai_enabled').default(false),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+  updatedAt: timestamp('updated_at').notNull().defaultNow(),
+});
+
+// 2. CUSTOMERS
 export const customers = pgTable('customers', {
   customerId: uuid('customer_id').defaultRandom().primaryKey(),
+  whatsappContactId: uuid('whatsapp_contact_id').unique().references(() => whatsappContacts.id, { onDelete: 'set null' }),
   whatsappNumber: text('whatsapp_number').notNull().unique(),
   name: text('name'),
   email: text('email'),
@@ -162,13 +196,16 @@ export const conversations = pgTable('conversations', {
   conversationId: uuid('conversation_id').defaultRandom().primaryKey(),
   customerId: uuid('customer_id')
     .notNull()
-    .references(() => customers.customerId),
+    .references(() => customers.customerId, { onDelete: 'cascade' }),
   assignedSalesRepId: uuid('assigned_sales_rep_id').references(
-    () => salesReps.salesRepId
+    () => salesReps.salesRepId, { onDelete: 'set null' }
   ),
   channel: channelEnum('channel').default('whatsapp'),
   status: conversationStatusEnum('status').default('active'),
+  leadStatus: leadStatusEnum('lead_status').default('new'),
   leadStage: leadStageEnum('lead_stage').default('new'),
+  leadScore: integer('lead_score'),
+  summary: text('summary'),
   source: text('source'),
   firstMessageAt: timestamp('first_message_at').notNull(),
   lastMessageAt: timestamp('last_message_at').notNull(),
@@ -181,10 +218,10 @@ export const messages = pgTable('messages', {
   messageId: uuid('message_id').defaultRandom().primaryKey(),
   conversationId: uuid('conversation_id')
     .notNull()
-    .references(() => conversations.conversationId),
+    .references(() => conversations.conversationId, { onDelete: 'cascade' }),
   customerId: uuid('customer_id')
     .notNull()
-    .references(() => customers.customerId),
+    .references(() => customers.customerId, { onDelete: 'cascade' }),
   whatsappMessageId: text('whatsapp_message_id').notNull().unique(),
   senderType: senderTypeEnum('sender_type').notNull(),
   direction: directionEnum('direction').notNull(),
@@ -194,6 +231,8 @@ export const messages = pgTable('messages', {
   replyToMessageId: uuid('reply_to_message_id'),
   messageTimestamp: timestamp('message_timestamp').notNull(),
   rawPayload: jsonb('raw_payload'),
+  aiProcessedAt: timestamp('ai_processed_at'),
+  aiAnalysisId: uuid('ai_analysis_id'),
   createdAt: timestamp('created_at').defaultNow(),
 });
 
@@ -201,7 +240,7 @@ export const messages = pgTable('messages', {
 export const conversationState = pgTable('conversation_state', {
   conversationId: uuid('conversation_id')
     .primaryKey()
-    .references(() => conversations.conversationId),
+    .references(() => conversations.conversationId, { onDelete: 'cascade' }),
   travelDate: date('travel_date'),
   guestCount: integer('guest_count'),
   bedroomsRequired: integer('bedrooms_required'),
@@ -209,7 +248,8 @@ export const conversationState = pgTable('conversation_state', {
   budget: numeric('budget'),
   location: text('location'),
   foodPreference: text('food_preference'),
-  preferredBoatId: uuid('preferred_boat_id').references(() => boats.boatId),
+  preferredBoatId: uuid('preferred_boat_id').references(() => boats.boatId, { onDelete: 'set null' }),
+  mainObjection: text('main_objection'),
   updatedAt: timestamp('updated_at').defaultNow(),
 });
 
@@ -218,7 +258,7 @@ export const conversationEvents = pgTable('conversation_events', {
   eventId: uuid('event_id').defaultRandom().primaryKey(),
   conversationId: uuid('conversation_id')
     .notNull()
-    .references(() => conversations.conversationId),
+    .references(() => conversations.conversationId, { onDelete: 'cascade' }),
   eventType: eventTypeEnum('event_type').notNull(),
   eventData: jsonb('event_data'),
   performedByType: performedByTypeEnum('performed_by_type').notNull(),
@@ -231,11 +271,11 @@ export const conversationEvents = pgTable('conversation_events', {
 export const bookings = pgTable('bookings', {
   bookingId: uuid('booking_id').defaultRandom().primaryKey(),
   conversationId: uuid('conversation_id').references(
-    () => conversations.conversationId
+    () => conversations.conversationId, { onDelete: 'cascade' }
   ),
-  customerId: uuid('customer_id').references(() => customers.customerId),
-  salesRepId: uuid('sales_rep_id').references(() => salesReps.salesRepId),
-  boatId: uuid('boat_id').references(() => boats.boatId),
+  customerId: uuid('customer_id').references(() => customers.customerId, { onDelete: 'cascade' }),
+  salesRepId: uuid('sales_rep_id').references(() => salesReps.salesRepId, { onDelete: 'set null' }),
+  boatId: uuid('boat_id').references(() => boats.boatId, { onDelete: 'set null' }),
   travelDate: date('travel_date'),
   guestCount: integer('guest_count'),
   bedrooms: integer('bedrooms'),
@@ -251,7 +291,33 @@ export const bookings = pgTable('bookings', {
   updatedAt: timestamp('updated_at').defaultNow(),
 });
 
+// 9. AI_ANALYSIS
+export const aiAnalysis = pgTable('ai_analysis', {
+  analysisId: uuid('analysis_id').defaultRandom().primaryKey(),
+  conversationId: uuid('conversation_id')
+    .notNull()
+    .references(() => conversations.conversationId, { onDelete: 'cascade' }),
+  triggerMessageId: uuid('trigger_message_id')
+    .notNull()
+    .references(() => messages.messageId, { onDelete: 'cascade' }),
+  inputMessageIds: jsonb('input_message_ids').notNull(), // string[]
+  intent: text('intent'),
+  leadStatus: leadStatusEnum('lead_status'),
+  leadStage: leadStageEnum('lead_stage'),
+  leadScore: integer('lead_score'),
+  stateUpdates: jsonb('state_updates'),
+  events: jsonb('events'),
+  summary: text('summary'),
+  confidence: numeric('confidence'),
+  model: text('model'),
+  createdAt: timestamp('created_at').defaultNow(),
+});
+
 // Infer TypeScript Types
+// Infer TypeScript Types
+export type WhatsAppContact = typeof whatsappContacts.$inferSelect;
+export type NewWhatsAppContact = typeof whatsappContacts.$inferInsert;
+
 export type Customer = typeof customers.$inferSelect;
 export type NewCustomer = typeof customers.$inferInsert;
 
@@ -275,3 +341,6 @@ export type NewBoat = typeof boats.$inferInsert;
 
 export type Booking = typeof bookings.$inferSelect;
 export type NewBooking = typeof bookings.$inferInsert;
+
+export type AiAnalysisRecord = typeof aiAnalysis.$inferSelect;
+export type NewAiAnalysisRecord = typeof aiAnalysis.$inferInsert;

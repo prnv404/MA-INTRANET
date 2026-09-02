@@ -6,6 +6,8 @@ import { MessageService } from '../crm/message.service.js';
 import { EventService } from '../crm/event.service.js';
 import { StateService } from '../crm/state.service.js';
 import { SalesRepService } from '../crm/sales-rep.service.js';
+import { scheduleConversationAnalysis } from '../workers/conversation-analysis.js';
+import { ContactService } from '../contacts/contact.service.js';
 import type { SalesRep } from '../db/schema.js';
 
 export class MessageHandler {
@@ -43,9 +45,24 @@ export class MessageHandler {
     const rawPhone = intercepted.sender.phoneNumber || intercepted.sender.jid;
     // Strip device index (e.g. 919876543210:4@s.whatsapp.net -> 919876543210)
     const phoneNumber = rawPhone.split(':')[0]!.split('@')[0]!.trim();
+    const jid = intercepted.sender.jid;
+
+    // ==========================================
+    // DATA BOUNDARY & CONTACT FILTERING
+    // ==========================================
+    const contact = await ContactService.getOrCreateWhatsAppContact(
+      jid,
+      phoneNumber,
+      intercepted.fromMe ? undefined : intercepted.sender.pushName
+    );
+
+    if (!contact.crmEnabled) {
+      console.log(`🛡️ [CONTACT FILTER] Contact ${jid} (Type: ${contact.contactType}) is not CRM-enabled. Stopping processing.`);
+      return { processed: false, isDuplicate: false };
+    }
 
     // Atomic Database Transaction
-    return await db.transaction(async (tx) => {
+    const result = await db.transaction(async (tx) => {
       // 1. Idempotency double-check within transaction
       const isStillDuplicate = await MessageService.isDuplicate(tx, whatsappMsgId);
       if (isStillDuplicate) {
@@ -58,7 +75,8 @@ export class MessageHandler {
         tx,
         phoneNumber,
         customerName,
-        msgDate
+        msgDate,
+        contact.id
       );
 
       // If customer.name is still missing, attempt text extraction (e.g., "My name is John")
@@ -189,6 +207,16 @@ export class MessageHandler {
         salesRepId: salesRep?.salesRepId,
       };
     });
+
+    if (result.processed && result.conversationId && result.messageId) {
+      // AI layer temporarily disabled for MVP
+      // if (contact.aiEnabled) {
+      //   scheduleConversationAnalysis(result.conversationId, result.messageId);
+      // }
+      console.log(`🛡️ [AI DISABLED] AI conversation analysis is temporarily turned off for MVP.`);
+    }
+
+    return result;
   }
 
   private static mapMessageType(type: MessageType): 'text' | 'image' | 'video' | 'audio' | 'document' | 'location' | 'reaction' | 'sticker' | 'other' {

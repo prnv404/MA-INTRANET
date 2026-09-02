@@ -23,10 +23,12 @@
     "typescript": "^5"
   },
   "dependencies": {
+    "@google/generative-ai": "^0.24.1",
     "@whiskeysockets/baileys": "^7.0.0-rc14",
     "drizzle-orm": "^0.39.3",
     "pino": "^10.3.1",
     "postgres": "^3.4.5",
-    "qrcode-terminal": "^0.12.0"
+    "qrcode-terminal": "^0.12.0",
+    "zod": "^4.5.4"
   }
 }

@@ -6,6 +6,7 @@ export interface ExtractedRequirements {
   bedroomsRequired?: number;
   boatType?: string;
   budget?: string;
+  travelDate?: string;
   hasUpdates: boolean;
 }
 
@@ -51,6 +52,7 @@ export class StateService {
     let bedroomsRequired: number | undefined;
     let boatType: string | undefined;
     let budget: string | undefined;
+    let travelDate: string | undefined;
     let hasUpdates = false;
 
     // 1. Guest Count Extraction (e.g., "6 guests", "6 people", "for 6 pax", "6 persons")
@@ -102,11 +104,28 @@ export class StateService {
       hasUpdates = true;
     }
 
+    // 5. Travel Date Extraction (e.g., DD/MM/YYYY or DD-MM)
+    // Matches 12/10, 12-10, 12/10/2026, 12.10.26
+    const dateMatch = text.match(/\b(\d{1,2})[\/\-\.](\d{1,2})(?:[\/\-\.](\d{2,4}))?\b/);
+    if (dateMatch && dateMatch[1] && dateMatch[2]) {
+      const day = dateMatch[1].padStart(2, '0');
+      const month = dateMatch[2].padStart(2, '0');
+      let year = dateMatch[3];
+      if (!year) {
+        year = new Date().getFullYear().toString();
+      } else if (year.length === 2) {
+        year = `20${year}`;
+      }
+      travelDate = `${year}-${month}-${day}`;
+      hasUpdates = true;
+    }
+
     return {
       guestCount,
       bedroomsRequired,
       boatType,
       budget,
+      travelDate,
       hasUpdates,
     };
   }
@@ -144,6 +163,9 @@ export class StateService {
     }
     if (extracted.budget !== undefined) {
       updatePayload.budget = extracted.budget;
+    }
+    if (extracted.travelDate !== undefined) {
+      updatePayload.travelDate = extracted.travelDate;
     }
 
     const updated = await tx

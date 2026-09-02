@@ -11,7 +11,8 @@ export class CustomerService {
     tx: any,
     whatsappNumber: string,
     pushName?: string,
-    timestamp: Date = new Date()
+    timestamp: Date = new Date(),
+    whatsappContactId?: string
   ): Promise<{ customer: Customer; isNew: boolean }> {
     const existing = await tx
       .select()
@@ -35,6 +36,11 @@ export class CustomerService {
         updatedFields.name = pushName.trim();
       }
 
+      // Link whatsappContactId if missing
+      if (whatsappContactId && !customer.whatsappContactId) {
+        updatedFields.whatsappContactId = whatsappContactId;
+      }
+
       const updated = await tx
         .update(customers)
         .set(updatedFields)
@@ -48,6 +54,7 @@ export class CustomerService {
     const created = await tx
       .insert(customers)
       .values({
+        whatsappContactId: whatsappContactId || null,
         whatsappNumber,
         name: pushName && pushName.trim() !== '' ? pushName.trim() : null,
         firstContactAt: timestamp,
