@@ -108,23 +108,13 @@ export const boatCategoryEnum = pgEnum('boat_category_enum', [
 // TABLES
 // ==========================================
 
-// 1. WHATSAPP_CONTACTS
-export const whatsappContacts = pgTable('whatsapp_contacts', {
-  id: uuid('id').defaultRandom().primaryKey(),
-  whatsappJid: text('whatsapp_jid').notNull().unique(),
-  phoneNumber: text('phone_number'),
-  displayName: text('display_name'),
-  contactType: whatsappContactTypeEnum('contact_type').default('unknown'),
-  crmEnabled: boolean('crm_enabled').default(false),
-  createdAt: timestamp('created_at').notNull().defaultNow(),
-  updatedAt: timestamp('updated_at').notNull().defaultNow(),
-});
-
-// 2. CUSTOMERS
+// 1. CUSTOMERS (Unified Contacts Table)
 export const customers = pgTable('customers', {
   customerId: uuid('customer_id').defaultRandom().primaryKey(),
-  whatsappContactId: uuid('whatsapp_contact_id').unique().references(() => whatsappContacts.id, { onDelete: 'set null' }),
+  whatsappJid: text('whatsapp_jid').notNull().unique(),
   whatsappNumber: text('whatsapp_number').notNull().unique(),
+  contactType: whatsappContactTypeEnum('contact_type').default('unknown'),
+  crmEnabled: boolean('crm_enabled').default(false),
   name: text('name'),
   email: text('email'),
   country: text('country'),
@@ -230,9 +220,6 @@ export const bookings = pgTable('bookings', {
 });
 
 // Infer TypeScript Types
-export type WhatsAppContact = typeof whatsappContacts.$inferSelect;
-export type NewWhatsAppContact = typeof whatsappContacts.$inferInsert;
-
 export type Customer = typeof customers.$inferSelect;
 export type NewCustomer = typeof customers.$inferInsert;
 

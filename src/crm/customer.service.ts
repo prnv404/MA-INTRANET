@@ -3,21 +3,21 @@ import { customers, type Customer } from '../db/schema.js';
 
 export class CustomerService {
   /**
-   * Find an existing customer by WhatsApp phone number, or create a new one.
+   * Find an existing contact/customer by WhatsApp JID, or create a new one.
    * If an existing customer has a null/empty name and a pushName is provided,
    * it automatically updates the customer's name.
    */
   public static async findOrCreateCustomer(
     tx: any,
+    whatsappJid: string,
     whatsappNumber: string,
     pushName?: string,
-    timestamp: Date = new Date(),
-    whatsappContactId?: string
+    timestamp: Date = new Date()
   ): Promise<{ customer: Customer; isNew: boolean }> {
     const existing = await tx
       .select()
       .from(customers)
-      .where(eq(customers.whatsappNumber, whatsappNumber))
+      .where(eq(customers.whatsappJid, whatsappJid))
       .limit(1);
 
     if (existing.length > 0 && existing[0]) {
@@ -36,11 +36,6 @@ export class CustomerService {
         updatedFields.name = pushName.trim();
       }
 
-      // Link whatsappContactId if missing
-      if (whatsappContactId && !customer.whatsappContactId) {
-        updatedFields.whatsappContactId = whatsappContactId;
-      }
-
       const updated = await tx
         .update(customers)
         .set(updatedFields)
@@ -50,12 +45,14 @@ export class CustomerService {
       return { customer: updated[0] || customer, isNew: false };
     }
 
-    // Create new customer
+    // Create new customer (defaults to CRM enabled lead)
     const created = await tx
       .insert(customers)
       .values({
-        whatsappContactId: whatsappContactId || null,
+        whatsappJid,
         whatsappNumber,
+        contactType: 'customer',
+        crmEnabled: true,
         name: pushName && pushName.trim() !== '' ? pushName.trim() : null,
         firstContactAt: timestamp,
         lastContactAt: timestamp,
@@ -65,6 +62,29 @@ export class CustomerService {
       .returning();
 
     return { customer: created[0]!, isNew: true };
+  }
+
+  /**
+   * Administrative function to update contact classification
+   * E.g., marking someone as a 'boat_owner' and removing them from CRM
+   */
+  public static async classifyContact(
+    tx: any,
+    customerId: string,
+    contactType: 'unknown' | 'customer' | 'boat_owner' | 'friend' | 'personal' | 'ignored',
+    crmEnabled: boolean
+  ) {
+    const [updated] = await tx
+      .update(customers)
+      .set({
+        contactType,
+        crmEnabled,
+        updatedAt: new Date(),
+      })
+      .where(eq(customers.customerId, customerId))
+      .returning();
+      
+    return updated;
   }
 
   /**

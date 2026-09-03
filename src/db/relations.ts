@@ -5,21 +5,11 @@ import {
   salesReps,
   boats,
   bookings,
-  whatsappContacts,
 } from './schema.js';
 
-export const whatsappContactsRelations = relations(whatsappContacts, ({ one }) => ({
-  customer: one(customers, {
-    fields: [whatsappContacts.id],
-    references: [customers.whatsappContactId],
-  }),
-}));
 
-export const customersRelations = relations(customers, ({ one, many }) => ({
-  whatsappContact: one(whatsappContacts, {
-    fields: [customers.whatsappContactId],
-    references: [whatsappContacts.id],
-  }),
+
+export const customersRelations = relations(customers, ({ many }) => ({
   messages: many(messages),
   bookings: many(bookings),
 }));

@@ -3,7 +3,6 @@ import type { InterceptedMessage, MessageType } from '../types.js';
 import { CustomerService } from '../crm/customer.service.js';
 import { MessageService } from '../crm/message.service.js';
 import { SalesRepService } from '../crm/sales-rep.service.js';
-import { ContactService } from '../contacts/contact.service.js';
 import type { SalesRep } from '../db/schema.js';
 
 export class MessageHandler {
@@ -42,20 +41,6 @@ export class MessageHandler {
     const phoneNumber = rawPhone.split(':')[0]!.split('@')[0]!.trim();
     const jid = intercepted.sender.jid;
 
-    // ==========================================
-    // DATA BOUNDARY & CONTACT FILTERING
-    // ==========================================
-    const contact = await ContactService.getOrCreateWhatsAppContact(
-      jid,
-      phoneNumber,
-      intercepted.fromMe ? undefined : intercepted.sender.pushName
-    );
-
-    if (!contact.crmEnabled) {
-      console.log(`🛡️ [CONTACT FILTER] Contact ${jid} (Type: ${contact.contactType}) is not CRM-enabled. Stopping processing.`);
-      return { processed: false, isDuplicate: false };
-    }
-
     // Atomic Database Transaction
     const result = await db.transaction(async (tx) => {
       // 1. Idempotency double-check within transaction
@@ -64,14 +49,16 @@ export class MessageHandler {
         return { processed: false, isDuplicate: true };
       }
 
-      // 2. Find or Create Customer (only pass pushName for INBOUND messages to avoid setting business/rep name as customer name)
+      // 2. Find or Create Unified Contact (Customer table)
+      // Only pass pushName for INBOUND messages to avoid setting business/rep name as customer name
       const customerName = intercepted.fromMe ? undefined : intercepted.sender.pushName;
+      
       const { customer } = await CustomerService.findOrCreateCustomer(
         tx,
+        jid,
         phoneNumber,
         customerName,
-        msgDate,
-        contact.id
+        msgDate
       );
 
       // If customer.name is still missing, attempt text extraction (e.g., "My name is John")
@@ -93,10 +80,7 @@ export class MessageHandler {
         salesRep = await SalesRepService.findOrCreateSalesRep(tx, repPhone, repName);
       }
 
-      // Update customer last_contact_at
-      await CustomerService.updateLastContact(tx, customer.customerId, msgDate);
-
-      // 4. Save Raw WhatsApp Message
+      // 4. Save Raw WhatsApp Message (Saved for all contacts, even if crmEnabled=false)
       const savedMessage = await MessageService.saveMessage(tx, {
         customerId: customer.customerId,
         whatsappMessageId: whatsappMsgId,
@@ -111,7 +95,7 @@ export class MessageHandler {
       });
 
       console.log(`✅ [CRM PERSISTENCE] Successfully stored ${direction} message ${whatsappMsgId}`);
-      console.log(`   └─ Customer: ${customer.whatsappNumber} [ID: ${customer.customerId}]`);
+      console.log(`   └─ Contact: ${customer.whatsappNumber} [ID: ${customer.customerId}] (CRM Enabled: ${customer.crmEnabled})`);
       if (salesRep) {
         console.log(`   └─ Assigned Sales Rep: ${salesRep.name} (${salesRep.phone}) [ID: ${salesRep.salesRepId}]`);
       }
