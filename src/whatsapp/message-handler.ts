@@ -1,12 +1,8 @@
 import { db } from '../db/index.js';
 import type { InterceptedMessage, MessageType } from '../types.js';
 import { CustomerService } from '../crm/customer.service.js';
-import { ConversationService } from '../crm/conversation.service.js';
 import { MessageService } from '../crm/message.service.js';
-import { EventService } from '../crm/event.service.js';
-import { StateService } from '../crm/state.service.js';
 import { SalesRepService } from '../crm/sales-rep.service.js';
-import { scheduleConversationAnalysis } from '../workers/conversation-analysis.js';
 import { ContactService } from '../contacts/contact.service.js';
 import type { SalesRep } from '../db/schema.js';
 
@@ -18,7 +14,6 @@ export class MessageHandler {
     processed: boolean;
     isDuplicate: boolean;
     customerId?: string;
-    conversationId?: string;
     messageId?: string;
     salesRepId?: string;
   }> {
@@ -71,7 +66,7 @@ export class MessageHandler {
 
       // 2. Find or Create Customer (only pass pushName for INBOUND messages to avoid setting business/rep name as customer name)
       const customerName = intercepted.fromMe ? undefined : intercepted.sender.pushName;
-      const { customer, isNew: isNewCustomer } = await CustomerService.findOrCreateCustomer(
+      const { customer } = await CustomerService.findOrCreateCustomer(
         tx,
         phoneNumber,
         customerName,
@@ -98,51 +93,11 @@ export class MessageHandler {
         salesRep = await SalesRepService.findOrCreateSalesRep(tx, repPhone, repName);
       }
 
-      // 4. Find or Create Active Conversation
-      let conversation = await ConversationService.findActiveConversation(tx, customer.customerId);
-      let isNewConversation = false;
-
-      if (!conversation) {
-        conversation = await ConversationService.createConversation(
-          tx,
-          customer.customerId,
-          msgDate,
-          'whatsapp',
-          salesRep?.salesRepId || null
-        );
-        isNewConversation = true;
-
-        // Record lead_created event for new conversation
-        await EventService.recordEvent(tx, {
-          conversationId: conversation.conversationId,
-          eventType: 'lead_created',
-          eventData: {
-            source: 'whatsapp',
-            firstMessageText: messageText,
-            isNewCustomer,
-            assignedSalesRepId: salesRep?.salesRepId || null,
-          },
-          performedByType: direction === 'inbound' ? 'customer' : 'sales_rep',
-          performedById: direction === 'inbound' ? customer.customerId : salesRep?.salesRepId,
-          eventTimestamp: msgDate,
-        });
-      } else {
-        // Assign/Update Sales Rep on existing conversation if not yet set or sent by a sales rep
-        if (salesRep && (!conversation.assignedSalesRepId || intercepted.fromMe)) {
-          await ConversationService.assignSalesRep(tx, conversation.conversationId, salesRep.salesRepId);
-          conversation.assignedSalesRepId = salesRep.salesRepId;
-        }
-
-        // Update conversation last_message_at
-        await ConversationService.updateLastMessageAt(tx, conversation.conversationId, msgDate);
-      }
-
       // Update customer last_contact_at
       await CustomerService.updateLastContact(tx, customer.customerId, msgDate);
 
-      // 5. Save Raw WhatsApp Message
+      // 4. Save Raw WhatsApp Message
       const savedMessage = await MessageService.saveMessage(tx, {
-        conversationId: conversation.conversationId,
         customerId: customer.customerId,
         whatsappMessageId: whatsappMsgId,
         senderType,
@@ -155,45 +110,8 @@ export class MessageHandler {
         createdAt: new Date(),
       });
 
-      // 6. Record Message Event (message_received for inbound, message_sent for outbound)
-      const eventType = direction === 'inbound' ? 'message_received' : 'message_sent';
-      await EventService.recordEvent(tx, {
-        conversationId: conversation.conversationId,
-        eventType,
-        eventData: {
-          messageId: savedMessage.messageId,
-          whatsappMessageId: whatsappMsgId,
-          messageType,
-          text: messageText,
-          salesRepId: salesRep?.salesRepId || null,
-        },
-        performedByType: direction === 'inbound' ? 'customer' : 'sales_rep',
-        performedById: direction === 'inbound' ? customer.customerId : salesRep?.salesRepId,
-        eventTimestamp: msgDate,
-      });
-
-      // 7. Deterministic Requirements State Extraction (NO AI)
-      const { updated: stateUpdated, extracted } = await StateService.updateStateDeterministic(
-        tx,
-        conversation.conversationId,
-        messageText
-      );
-
-      if (stateUpdated) {
-        await EventService.recordEvent(tx, {
-          conversationId: conversation.conversationId,
-          eventType: 'requirement_collected',
-          eventData: {
-            extractedRequirements: extracted,
-            triggerMessageId: savedMessage.messageId,
-          },
-          performedByType: 'system',
-          eventTimestamp: msgDate,
-        });
-      }
-
       console.log(`✅ [CRM PERSISTENCE] Successfully stored ${direction} message ${whatsappMsgId}`);
-      console.log(`   └─ Customer: ${customer.whatsappNumber} | Conversation: ${conversation.conversationId} ${isNewConversation ? '(NEW LEAD)' : ''}`);
+      console.log(`   └─ Customer: ${customer.whatsappNumber} [ID: ${customer.customerId}]`);
       if (salesRep) {
         console.log(`   └─ Assigned Sales Rep: ${salesRep.name} (${salesRep.phone}) [ID: ${salesRep.salesRepId}]`);
       }
@@ -202,19 +120,10 @@ export class MessageHandler {
         processed: true,
         isDuplicate: false,
         customerId: customer.customerId,
-        conversationId: conversation.conversationId,
         messageId: savedMessage.messageId,
         salesRepId: salesRep?.salesRepId,
       };
     });
-
-    if (result.processed && result.conversationId && result.messageId) {
-      // AI layer temporarily disabled for MVP
-      // if (contact.aiEnabled) {
-      //   scheduleConversationAnalysis(result.conversationId, result.messageId);
-      // }
-      console.log(`🛡️ [AI DISABLED] AI conversation analysis is temporarily turned off for MVP.`);
-    }
 
     return result;
   }

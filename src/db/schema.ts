@@ -23,14 +23,6 @@ export const channelEnum = pgEnum('channel_enum', [
   'other',
 ]);
 
-export const conversationStatusEnum = pgEnum('conversation_status_enum', [
-  'active',
-  'inactive',
-  'booked',
-  'lost',
-  'archived',
-]);
-
 export const leadStageEnum = pgEnum('lead_stage_enum', [
   'new',
   'enquiry',
@@ -85,31 +77,6 @@ export const messageTypeEnum = pgEnum('message_type_enum', [
   'other',
 ]);
 
-export const eventTypeEnum = pgEnum('event_type_enum', [
-  'lead_created',
-  'message_received',
-  'message_sent',
-  'requirement_collected',
-  'boat_recommended',
-  'quote_sent',
-  'customer_replied',
-  'follow_up_sent',
-  'payment_requested',
-  'payment_received',
-  'booking_confirmed',
-  'booking_cancelled',
-  'lead_lost',
-  'lead_reactivated',
-  'customer_objected',
-  'negotiation_started',
-]);
-
-export const performedByTypeEnum = pgEnum('performed_by_type_enum', [
-  'customer',
-  'sales_rep',
-  'system',
-]);
-
 export const bookingStatusEnum = pgEnum('booking_status_enum', [
   'pending',
   'confirmed',
@@ -131,6 +98,12 @@ export const boatStatusEnum = pgEnum('boat_status_enum', [
   'inactive',
 ]);
 
+export const boatCategoryEnum = pgEnum('boat_category_enum', [
+  'deluxe',
+  'premium',
+  'luxury',
+]);
+
 // ==========================================
 // TABLES
 // ==========================================
@@ -143,7 +116,6 @@ export const whatsappContacts = pgTable('whatsapp_contacts', {
   displayName: text('display_name'),
   contactType: whatsappContactTypeEnum('contact_type').default('unknown'),
   crmEnabled: boolean('crm_enabled').default(false),
-  aiEnabled: boolean('ai_enabled').default(false),
   createdAt: timestamp('created_at').notNull().defaultNow(),
   updatedAt: timestamp('updated_at').notNull().defaultNow(),
 });
@@ -180,7 +152,7 @@ export const salesReps = pgTable('sales_reps', {
 export const boats = pgTable('boats', {
   boatId: uuid('boat_id').defaultRandom().primaryKey(),
   boatName: text('boat_name').notNull(),
-  boatType: text('boat_type').notNull(),
+  boatCategory: boatCategoryEnum('boat_category').default('deluxe'),
   bedrooms: integer('bedrooms').notNull(),
   capacity: integer('capacity').notNull(),
   operatorName: text('operator_name'),
@@ -192,34 +164,9 @@ export const boats = pgTable('boats', {
   updatedAt: timestamp('updated_at').defaultNow(),
 });
 
-// 4. CONVERSATIONS
-export const conversations = pgTable('conversations', {
-  conversationId: uuid('conversation_id').defaultRandom().primaryKey(),
-  customerId: uuid('customer_id')
-    .notNull()
-    .references(() => customers.customerId, { onDelete: 'cascade' }),
-  assignedSalesRepId: uuid('assigned_sales_rep_id').references(
-    () => salesReps.salesRepId, { onDelete: 'set null' }
-  ),
-  channel: channelEnum('channel').default('whatsapp'),
-  status: conversationStatusEnum('status').default('active'),
-  leadStatus: leadStatusEnum('lead_status').default('new'),
-  leadStage: leadStageEnum('lead_stage').default('new'),
-  leadScore: integer('lead_score'),
-  summary: text('summary'),
-  source: text('source'),
-  firstMessageAt: timestamp('first_message_at').notNull(),
-  lastMessageAt: timestamp('last_message_at').notNull(),
-  createdAt: timestamp('created_at').notNull().defaultNow(),
-  updatedAt: timestamp('updated_at').notNull().defaultNow(),
-});
-
-// 5. MESSAGES
+// 4. MESSAGES
 export const messages = pgTable('messages', {
   messageId: uuid('message_id').defaultRandom().primaryKey(),
-  conversationId: uuid('conversation_id')
-    .notNull()
-    .references(() => conversations.conversationId, { onDelete: 'cascade' }),
   customerId: uuid('customer_id')
     .notNull()
     .references(() => customers.customerId, { onDelete: 'cascade' }),
@@ -232,59 +179,49 @@ export const messages = pgTable('messages', {
   replyToMessageId: uuid('reply_to_message_id'),
   messageTimestamp: timestamp('message_timestamp').notNull(),
   rawPayload: jsonb('raw_payload'),
-  aiProcessedAt: timestamp('ai_processed_at'),
-  aiAnalysisId: uuid('ai_analysis_id'),
   createdAt: timestamp('created_at').defaultNow(),
 });
 
-// 6. CONVERSATION_STATE
-export const conversationState = pgTable('conversation_state', {
-  conversationId: uuid('conversation_id')
-    .primaryKey()
-    .references(() => conversations.conversationId, { onDelete: 'cascade' }),
-  travelDate: date('travel_date'),
-  guestCount: integer('guest_count'),
-  bedroomsRequired: integer('bedrooms_required'),
-  boatType: text('boat_type'),
-  budget: numeric('budget'),
-  location: text('location'),
-  foodPreference: text('food_preference'),
-  preferredBoatId: uuid('preferred_boat_id').references(() => boats.boatId, { onDelete: 'set null' }),
-  mainObjection: text('main_objection'),
-  updatedAt: timestamp('updated_at').defaultNow(),
-});
-
-// 7. CONVERSATION_EVENTS
-export const conversationEvents = pgTable('conversation_events', {
-  eventId: uuid('event_id').defaultRandom().primaryKey(),
-  conversationId: uuid('conversation_id')
-    .notNull()
-    .references(() => conversations.conversationId, { onDelete: 'cascade' }),
-  eventType: eventTypeEnum('event_type').notNull(),
-  eventData: jsonb('event_data'),
-  performedByType: performedByTypeEnum('performed_by_type').notNull(),
-  performedById: uuid('performed_by_id'),
-  eventTimestamp: timestamp('event_timestamp').notNull(),
-  createdAt: timestamp('created_at').defaultNow(),
-});
-
-// 8. BOOKINGS
+// 5. BOOKINGS
 export const bookings = pgTable('bookings', {
   bookingId: uuid('booking_id').defaultRandom().primaryKey(),
-  conversationId: uuid('conversation_id').references(
-    () => conversations.conversationId, { onDelete: 'cascade' }
-  ),
   customerId: uuid('customer_id').references(() => customers.customerId, { onDelete: 'cascade' }),
   salesRepId: uuid('sales_rep_id').references(() => salesReps.salesRepId, { onDelete: 'set null' }),
   boatId: uuid('boat_id').references(() => boats.boatId, { onDelete: 'set null' }),
-  travelDate: date('travel_date'),
+  
+  // Dates & Timing
+  checkInDate: date('check_in_date'),
+  checkOutDate: date('check_out_date'),
+  checkInTime: text('check_in_time'),
+  checkOutTime: text('check_out_time'),
+  
+  // Pax & Logistics
   guestCount: integer('guest_count'),
+  adultsCount: integer('adults_count'),
+  childrenCount: integer('children_count'),
+  vegMeals: integer('veg_meals'),
+  nonVegMeals: integer('non_veg_meals'),
+  boardingPoint: text('boarding_point'),
+  droppingPoint: text('dropping_point'),
+  
+  // Boat Requirements
+  boatCategory: boatCategoryEnum('boat_category'),
   bedrooms: integer('bedrooms'),
-  quotedPrice: numeric('quoted_price'),
-  finalPrice: numeric('final_price'),
+  
+  // Pricing & Payment
+  boatPrice: numeric('boat_price'),
+  extraCharges: numeric('extra_charges'),
+  totalPrice: numeric('total_price'),
   discount: numeric('discount'),
+  advancePaid: numeric('advance_paid'),
+  balanceAmount: numeric('balance_amount'),
+  
+  // Statuses & Notes
   bookingStatus: bookingStatusEnum('booking_status').default('pending'),
   paymentStatus: paymentStatusEnum('payment_status').default('pending'),
+  specialRequests: text('special_requests'),
+  notes: text('notes'),
+  
   bookingCreatedAt: timestamp('booking_created_at').defaultNow(),
   confirmedAt: timestamp('confirmed_at'),
   cancelledAt: timestamp('cancelled_at'),
@@ -292,29 +229,6 @@ export const bookings = pgTable('bookings', {
   updatedAt: timestamp('updated_at').defaultNow(),
 });
 
-// 9. AI_ANALYSIS
-export const aiAnalysis = pgTable('ai_analysis', {
-  analysisId: uuid('analysis_id').defaultRandom().primaryKey(),
-  conversationId: uuid('conversation_id')
-    .notNull()
-    .references(() => conversations.conversationId, { onDelete: 'cascade' }),
-  triggerMessageId: uuid('trigger_message_id')
-    .notNull()
-    .references(() => messages.messageId, { onDelete: 'cascade' }),
-  inputMessageIds: jsonb('input_message_ids').notNull(), // string[]
-  intent: text('intent'),
-  leadStatus: leadStatusEnum('lead_status'),
-  leadStage: leadStageEnum('lead_stage'),
-  leadScore: integer('lead_score'),
-  stateUpdates: jsonb('state_updates'),
-  events: jsonb('events'),
-  summary: text('summary'),
-  confidence: numeric('confidence'),
-  model: text('model'),
-  createdAt: timestamp('created_at').defaultNow(),
-});
-
-// Infer TypeScript Types
 // Infer TypeScript Types
 export type WhatsAppContact = typeof whatsappContacts.$inferSelect;
 export type NewWhatsAppContact = typeof whatsappContacts.$inferInsert;
@@ -322,17 +236,8 @@ export type NewWhatsAppContact = typeof whatsappContacts.$inferInsert;
 export type Customer = typeof customers.$inferSelect;
 export type NewCustomer = typeof customers.$inferInsert;
 
-export type Conversation = typeof conversations.$inferSelect;
-export type NewConversation = typeof conversations.$inferInsert;
-
 export type MessageRecord = typeof messages.$inferSelect;
 export type NewMessageRecord = typeof messages.$inferInsert;
-
-export type ConversationStateRecord = typeof conversationState.$inferSelect;
-export type NewConversationStateRecord = typeof conversationState.$inferInsert;
-
-export type ConversationEventRecord = typeof conversationEvents.$inferSelect;
-export type NewConversationEventRecord = typeof conversationEvents.$inferInsert;
 
 export type SalesRep = typeof salesReps.$inferSelect;
 export type NewSalesRep = typeof salesReps.$inferInsert;
@@ -342,6 +247,3 @@ export type NewBoat = typeof boats.$inferInsert;
 
 export type Booking = typeof bookings.$inferSelect;
 export type NewBooking = typeof bookings.$inferInsert;
-
-export type AiAnalysisRecord = typeof aiAnalysis.$inferSelect;
-export type NewAiAnalysisRecord = typeof aiAnalysis.$inferInsert;

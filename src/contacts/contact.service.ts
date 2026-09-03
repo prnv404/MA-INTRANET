@@ -4,8 +4,7 @@ import { eq } from 'drizzle-orm';
 
 export class ContactService {
   /**
-   * Retrieves an existing WhatsApp contact by JID or creates a new one 
-   * defaulting to 'unknown' type with CRM and AI disabled.
+   * Retrieves an existing WhatsApp contact by JID or creates a new one
    */
   public static async getOrCreateWhatsAppContact(
     jid: string,
@@ -27,7 +26,6 @@ export class ContactService {
       displayName,
       contactType: 'customer',
       crmEnabled: true,
-      aiEnabled: true,
     }).onConflictDoNothing({ target: whatsappContacts.whatsappJid }).returning();
 
     // In case of a race condition where onConflictDoNothing prevented insert,
@@ -51,15 +49,13 @@ export class ContactService {
   public static async classifyContact(
     jid: string,
     contactType: 'unknown' | 'customer' | 'boat_owner' | 'friend' | 'personal' | 'ignored',
-    crmEnabled: boolean,
-    aiEnabled: boolean
+    crmEnabled: boolean
   ) {
     const [updated] = await db
       .update(whatsappContacts)
       .set({
         contactType,
         crmEnabled,
-        aiEnabled,
         updatedAt: new Date(),
       })
       .where(eq(whatsappContacts.whatsappJid, jid))
