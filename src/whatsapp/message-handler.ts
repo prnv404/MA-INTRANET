@@ -81,8 +81,8 @@ export class MessageHandler {
         salesRep = await SalesRepService.findOrCreateSalesRep(tx, repPhone, repName);
       }
 
-      // 3.5 Auto-create or find active Opportunity for CRM-enabled customers on inbound messages
-      if (direction === 'inbound' && customer.crmEnabled) {
+      // 3.5 Auto-create or find active Opportunity for CRM-enabled customers
+      if (customer.crmEnabled) {
         await OpportunityService.ensureActiveOpportunity(
           tx,
           customer.customerId,

@@ -23,8 +23,8 @@ export class OpportunityService {
 
     if (active) {
       // If we found an active opportunity, return it
-      // Optionally update the sales rep if one is provided and none is currently assigned
-      if (salesRepId && !active.salesRepId) {
+      // Automatically update the sales rep to whoever is currently messaging them
+      if (salesRepId && active.salesRepId !== salesRepId) {
         const [updated] = await tx
           .update(opportunities)
           .set({ salesRepId, updatedAt: new Date() })
