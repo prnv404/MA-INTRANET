@@ -17,7 +17,7 @@
     "@types/bun": "latest",
     "@types/node": "^26.4.0",
     "@types/qrcode-terminal": "^0.12.2",
-    "drizzle-kit": "^0.30.4"
+    "drizzle-kit": "^0.30.6"
   },
   "peerDependencies": {
     "typescript": "^5"

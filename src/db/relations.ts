@@ -3,6 +3,7 @@ import {
   customers,
   messages,
   salesReps,
+  opportunities,
   boats,
   bookings,
 } from './schema.js';
@@ -11,10 +12,12 @@ import {
 
 export const customersRelations = relations(customers, ({ many }) => ({
   messages: many(messages),
+  opportunities: many(opportunities),
   bookings: many(bookings),
 }));
 
 export const salesRepsRelations = relations(salesReps, ({ many }) => ({
+  opportunities: many(opportunities),
   bookings: many(bookings),
 }));
 
@@ -29,7 +32,23 @@ export const messagesRelations = relations(messages, ({ one }) => ({
   }),
 }));
 
+export const opportunitiesRelations = relations(opportunities, ({ one, many }) => ({
+  customer: one(customers, {
+    fields: [opportunities.customerId],
+    references: [customers.customerId],
+  }),
+  salesRep: one(salesReps, {
+    fields: [opportunities.salesRepId],
+    references: [salesReps.salesRepId],
+  }),
+  bookings: many(bookings),
+}));
+
 export const bookingsRelations = relations(bookings, ({ one }) => ({
+  opportunity: one(opportunities, {
+    fields: [bookings.opportunityId],
+    references: [opportunities.opportunityId],
+  }),
   customer: one(customers, {
     fields: [bookings.customerId],
     references: [customers.customerId],

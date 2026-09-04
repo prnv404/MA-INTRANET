@@ -3,6 +3,7 @@ import type { InterceptedMessage, MessageType } from '../types.js';
 import { CustomerService } from '../crm/customer.service.js';
 import { MessageService } from '../crm/message.service.js';
 import { SalesRepService } from '../crm/sales-rep.service.js';
+import { OpportunityService } from '../crm/opportunity.service.js';
 import type { SalesRep } from '../db/schema.js';
 
 export class MessageHandler {
@@ -78,6 +79,15 @@ export class MessageHandler {
         const repPhone = intercepted.accountPhone || phoneNumber;
         const repName = intercepted.fromMe ? intercepted.sender.pushName : undefined;
         salesRep = await SalesRepService.findOrCreateSalesRep(tx, repPhone, repName);
+      }
+
+      // 3.5 Auto-create or find active Opportunity for CRM-enabled customers on inbound messages
+      if (direction === 'inbound' && customer.crmEnabled) {
+        await OpportunityService.ensureActiveOpportunity(
+          tx,
+          customer.customerId,
+          salesRep?.salesRepId
+        );
       }
 
       // 4. Save Raw WhatsApp Message (Saved for all contacts, even if crmEnabled=false)
