@@ -1,10 +1,19 @@
 import { expect, test, describe } from 'bun:test';
 import { db } from '../src/db/index.js';
-import { customers } from '../src/db/schema.js';
+import type { Customer } from '../src/db/schema.js';
 import { CustomerService } from '../src/crm/customer.service.js';
 import { MessageHandler } from '../src/whatsapp/message-handler.js';
-import { eq } from 'drizzle-orm';
 import type { InterceptedMessage } from '../src/types.js';
+
+const findCustomerByJid = async (jid: string) => {
+  const { data, error } = await db
+    .from('customers')
+    .select()
+    .eq('whatsapp_jid', jid)
+    .maybeSingle<Customer>();
+  if (error) throw error;
+  return data;
+};
 
 describe('Unified Contacts & Message Handling', () => {
 
@@ -30,7 +39,6 @@ describe('Unified Contacts & Message Handling', () => {
 
   test('New inbound message creates a unified contact with CRM enabled by default', async () => {
     const jid = `newlead-${Date.now()}@s.whatsapp.net`;
-    const phone = jid.split('@')[0]!;
 
     const msg = generateMockMessage(jid, "I want to book a houseboat");
     const result = await MessageHandler.handleIncomingMessage(msg);
@@ -40,12 +48,10 @@ describe('Unified Contacts & Message Handling', () => {
     expect(result.customerId).toBeDefined();
 
     // Verify contact record was created
-    const contact = await db.query.customers.findFirst({
-      where: eq(customers.whatsappJid, jid)
-    });
+    const contact = await findCustomerByJid(jid);
     expect(contact).toBeDefined();
-    expect(contact?.contactType).toBe('customer');
-    expect(contact?.crmEnabled).toBe(true);
+    expect(contact?.contact_type).toBe('customer');
+    expect(contact?.crm_enabled).toBe(true);
   });
 
   test('Boat owner message is processed but crmEnabled can be set to false', async () => {
@@ -53,11 +59,8 @@ describe('Unified Contacts & Message Handling', () => {
     const phone = jid.split('@')[0]!;
     
     // 1. Manually seed contact as a boat owner
-    await db.transaction(async (tx) => {
-      await CustomerService.findOrCreateCustomer(tx, jid, phone, 'Boat Owner');
-      const contact = await db.query.customers.findFirst({ where: eq(customers.whatsappJid, jid) });
-      await CustomerService.classifyContact(tx, contact!.customerId, 'boat_owner', false);
-    });
+    const { customer } = await CustomerService.findOrCreateCustomer(db, jid, phone, 'Boat Owner');
+    await CustomerService.classifyContact(db, customer.customer_id, 'boat_owner', false);
 
     // 2. Send message
     const msg = generateMockMessage(jid, "Boat is ready");
@@ -68,11 +71,19 @@ describe('Unified Contacts & Message Handling', () => {
     expect(result.customerId).toBeDefined();
 
     // Verify customer is still a boat owner and crm is disabled
-    const contact = await db.query.customers.findFirst({
-      where: eq(customers.whatsappJid, jid)
-    });
-    expect(contact?.contactType).toBe('boat_owner');
-    expect(contact?.crmEnabled).toBe(false);
+    const contact = await findCustomerByJid(jid);
+    expect(contact?.contact_type).toBe('boat_owner');
+    expect(contact?.crm_enabled).toBe(false);
+  });
+
+  test('Duplicate message is skipped', async () => {
+    const jid = `dup-${Date.now()}@s.whatsapp.net`;
+    const msg = generateMockMessage(jid, "Hello");
+
+    expect((await MessageHandler.handleIncomingMessage(msg)).processed).toBe(true);
+    const second = await MessageHandler.handleIncomingMessage(msg);
+    expect(second.processed).toBe(false);
+    expect(second.isDuplicate).toBe(true);
   });
 
   test('Group messages are ignored completely', async () => {

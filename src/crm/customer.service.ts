@@ -1,5 +1,5 @@
-import { eq } from 'drizzle-orm';
-import { customers, type Customer } from '../db/schema.js';
+import { UNIQUE_VIOLATION, type DbClient } from '../db/index.js';
+import type { Customer, WhatsappContactType } from '../db/schema.js';
 
 export class CustomerService {
   /**
@@ -8,60 +8,70 @@ export class CustomerService {
    * it automatically updates the customer's name.
    */
   public static async findOrCreateCustomer(
-    tx: any,
+    db: DbClient,
     whatsappJid: string,
     whatsappNumber: string,
     pushName?: string,
     timestamp: Date = new Date()
   ): Promise<{ customer: Customer; isNew: boolean }> {
-    const existing = await tx
+    const { data: existing, error: findError } = await db
+      .from('customers')
       .select()
-      .from(customers)
-      .where(eq(customers.whatsappJid, whatsappJid))
-      .limit(1);
+      .eq('whatsapp_jid', whatsappJid)
+      .maybeSingle<Customer>();
+    if (findError) throw findError;
 
-    if (existing.length > 0 && existing[0]) {
-      const customer = existing[0];
+    if (existing) {
       const updatedFields: Partial<Customer> = {
-        lastContactAt: timestamp,
-        updatedAt: new Date(),
+        last_contact_at: timestamp.toISOString(),
+        updated_at: new Date().toISOString(),
       };
 
       // Automatically update customer name if currently null/empty and a pushName is received
       if (
-        (!customer.name || customer.name.trim() === '') &&
+        (!existing.name || existing.name.trim() === '') &&
         pushName &&
         pushName.trim() !== ''
       ) {
         updatedFields.name = pushName.trim();
       }
 
-      const updated = await tx
-        .update(customers)
-        .set(updatedFields)
-        .where(eq(customers.customerId, customer.customerId))
-        .returning();
+      const { data: updated, error: updateError } = await db
+        .from('customers')
+        .update(updatedFields)
+        .eq('customer_id', existing.customer_id)
+        .select()
+        .maybeSingle<Customer>();
+      if (updateError) throw updateError;
 
-      return { customer: updated[0] || customer, isNew: false };
+      return { customer: updated || existing, isNew: false };
     }
 
     // Create new customer (defaults to CRM enabled lead)
-    const created = await tx
-      .insert(customers)
-      .values({
-        whatsappJid,
-        whatsappNumber,
-        contactType: 'customer',
-        crmEnabled: true,
+    const now = new Date().toISOString();
+    const { data: created, error: insertError } = await db
+      .from('customers')
+      .insert({
+        whatsapp_jid: whatsappJid,
+        whatsapp_number: whatsappNumber,
+        contact_type: 'customer',
+        crm_enabled: true,
         name: pushName && pushName.trim() !== '' ? pushName.trim() : null,
-        firstContactAt: timestamp,
-        lastContactAt: timestamp,
-        createdAt: new Date(),
-        updatedAt: new Date(),
+        first_contact_at: timestamp.toISOString(),
+        last_contact_at: timestamp.toISOString(),
+        created_at: now,
+        updated_at: now,
       })
-      .returning();
+      .select()
+      .single<Customer>();
 
-    return { customer: created[0]!, isNew: true };
+    // Lost a race with a concurrent insert — fall back to the now-existing row
+    if (insertError?.code === UNIQUE_VIOLATION) {
+      return this.findOrCreateCustomer(db, whatsappJid, whatsappNumber, pushName, timestamp);
+    }
+    if (insertError) throw insertError;
+
+    return { customer: created, isNew: true };
   }
 
   /**
@@ -69,81 +79,41 @@ export class CustomerService {
    * E.g., marking someone as a 'boat_owner' and removing them from CRM
    */
   public static async classifyContact(
-    tx: any,
+    db: DbClient,
     customerId: string,
-    contactType: 'unknown' | 'customer' | 'boat_owner' | 'friend' | 'personal' | 'ignored',
+    contactType: WhatsappContactType,
     crmEnabled: boolean
-  ) {
-    const [updated] = await tx
-      .update(customers)
-      .set({
-        contactType,
-        crmEnabled,
-        updatedAt: new Date(),
-      })
-      .where(eq(customers.customerId, customerId))
-      .returning();
-      
-    return updated;
-  }
-
-  /**
-   * Explicitly update the name of a customer
-   */
-  public static async updateCustomerName(
-    tx: any,
-    customerId: string,
-    name: string
   ): Promise<Customer | null> {
-    const updated = await tx
-      .update(customers)
-      .set({
-        name: name.trim(),
-        updatedAt: new Date(),
+    const { data: updated, error } = await db
+      .from('customers')
+      .update({
+        contact_type: contactType,
+        crm_enabled: crmEnabled,
+        updated_at: new Date().toISOString(),
       })
-      .where(eq(customers.customerId, customerId))
-      .returning();
+      .eq('customer_id', customerId)
+      .select()
+      .maybeSingle<Customer>();
+    if (error) throw error;
 
-    return updated[0] || null;
-  }
-
-  /**
-   * Helper to deterministically extract customer name from conversational text
-   * e.g., "My name is John Doe", "I am Sarah", "Name: Alex"
-   */
-  public static extractNameFromText(text?: string | null): string | null {
-    if (!text) return null;
-    const match =
-      text.match(/(?:my name is|i am|this is|name:?)\s+([A-Za-z\s]{2,30})/i);
-
-    if (match && match[1]) {
-      const candidate = match[1].trim();
-      const forbidden = ['looking', 'interested', 'here', 'a', 'the', 'sending', 'asking'];
-      if (candidate && !forbidden.includes(candidate.toLowerCase())) {
-        // Capitalize words cleanly
-        return candidate
-          .split(' ')
-          .map((w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
-          .join(' ');
-      }
-    }
-    return null;
+    return updated;
   }
 
   /**
    * Explicitly update last contact timestamp for a customer
    */
   public static async updateLastContact(
-    tx: any,
+    db: DbClient,
     customerId: string,
     timestamp: Date = new Date()
   ): Promise<void> {
-    await tx
-      .update(customers)
-      .set({
-        lastContactAt: timestamp,
-        updatedAt: new Date(),
+    const { error } = await db
+      .from('customers')
+      .update({
+        last_contact_at: timestamp.toISOString(),
+        updated_at: new Date().toISOString(),
       })
-      .where(eq(customers.customerId, customerId));
+      .eq('customer_id', customerId);
+    if (error) throw error;
   }
 }

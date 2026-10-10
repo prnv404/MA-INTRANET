@@ -1,17 +1,18 @@
-import { drizzle } from 'drizzle-orm/postgres-js';
-import postgres from 'postgres';
-import * as schema from './schema.js';
-import * as relations from './relations.js';
+import { createClient } from '@supabase/supabase-js';
 
-const connectionString =
-  process.env.DATABASE_URL ||
-  'postgresql://postgres:postgres@localhost:5432/whatsapp_crm';
+const supabaseUrl = process.env.SUPABASE_URL;
+const supabaseSecretKey = process.env.SUPABASE_SECRET_KEY;
 
-// Connection client with maximum pool limit
-export const queryClient = postgres(connectionString, { max: 15 });
+if (!supabaseUrl || !supabaseSecretKey) {
+  throw new Error('Missing SUPABASE_URL or SUPABASE_SECRET_KEY environment variables');
+}
 
-export const db = drizzle(queryClient, {
-  schema: { ...schema, ...relations },
+// Server-side client using the secret key (bypasses RLS). Never ship this key to a browser.
+export const db = createClient(supabaseUrl, supabaseSecretKey, {
+  auth: { persistSession: false, autoRefreshToken: false },
 });
 
 export type DbClient = typeof db;
+
+/** Postgres unique_violation error code */
+export const UNIQUE_VIOLATION = '23505';

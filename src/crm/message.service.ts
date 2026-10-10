@@ -1,35 +1,41 @@
-import { eq } from 'drizzle-orm';
-import { messages, type MessageRecord, type NewMessageRecord } from '../db/schema.js';
+import { UNIQUE_VIOLATION, type DbClient } from '../db/index.js';
+import type { MessageRecord, NewMessageRecord } from '../db/schema.js';
 
 export class MessageService {
   /**
    * Check if a message with the given WhatsApp message ID already exists (idempotency check)
    */
   public static async isDuplicate(
-    tx: any,
+    db: DbClient,
     whatsappMessageId: string
   ): Promise<boolean> {
-    const existing = await tx
-      .select({ id: messages.messageId })
-      .from(messages)
-      .where(eq(messages.whatsappMessageId, whatsappMessageId))
+    const { data, error } = await db
+      .from('messages')
+      .select('message_id')
+      .eq('whatsapp_message_id', whatsappMessageId)
       .limit(1);
+    if (error) throw error;
 
-    return existing.length > 0;
+    return data.length > 0;
   }
 
   /**
-   * Insert a new message into the messages table
+   * Insert a new message into the messages table.
+   * Returns null if a message with the same whatsapp_message_id already exists.
    */
   public static async saveMessage(
-    tx: any,
+    db: DbClient,
     data: NewMessageRecord
-  ): Promise<MessageRecord> {
-    const inserted = await tx
-      .insert(messages)
-      .values(data)
-      .returning();
+  ): Promise<MessageRecord | null> {
+    const { data: inserted, error } = await db
+      .from('messages')
+      .insert(data)
+      .select()
+      .single<MessageRecord>();
 
-    return inserted[0]!;
+    if (error?.code === UNIQUE_VIOLATION) return null;
+    if (error) throw error;
+
+    return inserted;
   }
 }

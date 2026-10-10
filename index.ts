@@ -1,5 +1,7 @@
 import { WhatsAppInterceptor } from './src/interceptor.js';
 import { MessageHandler } from './src/whatsapp/message-handler.js';
+import { ExtractionService } from './src/ai/extraction.service.js';
+import { MarketService } from './src/market/market.service.js';
 
 async function main() {
   console.clear();
@@ -13,6 +15,7 @@ async function main() {
     printQRInTerminal: true,
     ignoreFromMe: false,        // Intercept messages from both self & contacts
     ignoreStatusUpdates: true,  // Ignore WhatsApp status story broadcasts
+    ignoreGroupMessages: false, // Groups feed the live boat availability board (only enabled groups are read)
     ignoreOldMessages: true,    // Ignore past historical messages on boot
     logLevel: 'silent',         // Keep terminal clean for interceptor output
     downloadMedia: false,       // Disabled media binary downloading
@@ -20,6 +23,14 @@ async function main() {
 
   // 2. Connect Interceptor to CRM Transactional Persistence Layer
   interceptor.onMessage(async (interceptedMessage) => {
+    // B2B owner groups → market availability pipeline (queued, never blocks DMs)
+    if (interceptedMessage.sender.isGroup) {
+      if (!interceptedMessage.fromMe && interceptedMessage.sender.groupJid) {
+        void MarketService.enqueue(MarketService.fromIntercepted(interceptedMessage));
+      }
+      return;
+    }
+
     try {
       await MessageHandler.handleIncomingMessage(interceptedMessage);
     } catch (err) {
@@ -30,7 +41,7 @@ async function main() {
   // 3. Handle Connection Lifecycle Events
   interceptor.on('connected', (jid) => {
     console.log(`💡 [STATUS] Interceptor online for JID: ${jid}`);
-    console.log('💬 Monitoring WhatsApp messages & persisting to PostgreSQL CRM...\n');
+    console.log('💬 Monitoring WhatsApp messages & persisting to Supabase CRM...\n');
   });
 
   interceptor.on('logout', () => {
@@ -41,6 +52,7 @@ async function main() {
   // 4. Handle Graceful Process Shutdown
   const shutdown = async (signal: string) => {
     console.log(`\n🛑 Received ${signal}. Shutting down WhatsApp Interceptor...`);
+    ExtractionService.cancelAll();
     await interceptor.stop();
     process.exit(0);
   };

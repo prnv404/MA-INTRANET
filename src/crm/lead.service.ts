@@ -1,54 +1,71 @@
-import { eq, desc } from 'drizzle-orm';
-import { opportunities, type Opportunity, type NewOpportunity } from '../db/schema.js';
+import type { DbClient } from '../db/index.js';
+import type { Lead } from '../db/schema.js';
 
-export class OpportunityService {
+export class LeadService {
   /**
-   * Ensure a customer has an active opportunity.
+   * Ensure a customer has an active lead.
    * If they don't have one (or all are closed/lost/booked), create a new one.
    */
-  public static async ensureActiveOpportunity(
-    tx: any,
+  public static async ensureActiveLead(
+    db: DbClient,
     customerId: string,
     salesRepId?: string
-  ): Promise<{ opportunity: Opportunity; isNew: boolean }> {
-    // Look for an existing open opportunity for this customer
-    const existing = await tx
+  ): Promise<{ lead: Lead; isNew: boolean }> {
+    // Look for an existing open lead for this customer
+    const { data: existing, error: findError } = await db
+      .from('leads')
       .select()
-      .from(opportunities)
-      .where(eq(opportunities.customerId, customerId))
-      .orderBy(desc(opportunities.createdAt));
+      .eq('customer_id', customerId)
+      .order('created_at', { ascending: false })
+      .returns<Lead[]>();
+    if (findError) throw findError;
 
-    // Consider an opportunity "active" if it is not booked or lost
-    const active = existing.find((opp: Opportunity) => opp.status !== 'booked' && opp.status !== 'lost');
+    // Consider a lead "active" if it is not booked or lost
+    const active = existing.find((lead) => lead.status !== 'booked' && lead.status !== 'lost');
 
     if (active) {
-      // If we found an active opportunity, return it
+      // If we found an active lead, return it
       // Automatically update the sales rep to whoever is currently messaging them
-      if (salesRepId && active.salesRepId !== salesRepId) {
-        const [updated] = await tx
-          .update(opportunities)
-          .set({ salesRepId, updatedAt: new Date() })
-          .where(eq(opportunities.opportunityId, active.opportunityId))
-          .returning();
-        return { opportunity: updated, isNew: false };
+      if (salesRepId && active.sales_rep_id !== salesRepId) {
+        const { data: updated, error: updateError } = await db
+          .from('leads')
+          .update({ sales_rep_id: salesRepId, updated_at: new Date().toISOString() })
+          .eq('lead_id', active.lead_id)
+          .select()
+          .single<Lead>();
+        if (updateError) throw updateError;
+        return { lead: updated, isNew: false };
       }
-      return { opportunity: active, isNew: false };
+      return { lead: active, isNew: false };
     }
 
-    // No active opportunity found, create a new one
-    const [created] = await tx
-      .insert(opportunities)
-      .values({
-        customerId,
-        salesRepId: salesRepId || null,
+    // No active lead found, create a new one (ai_status defaults to 'active' in the DB)
+    const now = new Date().toISOString();
+    const { data: created, error: insertError } = await db
+      .from('leads')
+      .insert({
+        customer_id: customerId,
+        sales_rep_id: salesRepId || null,
         stage: 'new',
         status: 'interested',
-        sourceChannel: 'whatsapp',
-        createdAt: new Date(),
-        updatedAt: new Date(),
+        source_channel: 'whatsapp',
+        created_at: now,
+        updated_at: now,
       })
-      .returning();
+      .select()
+      .single<Lead>();
+    if (insertError) throw insertError;
 
-    return { opportunity: created, isNew: true };
+    return { lead: created, isNew: true };
+  }
+
+  public static async findById(db: DbClient, leadId: string): Promise<Lead | null> {
+    const { data, error } = await db
+      .from('leads')
+      .select()
+      .eq('lead_id', leadId)
+      .maybeSingle<Lead>();
+    if (error) throw error;
+    return data;
   }
 }

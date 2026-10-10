@@ -26,6 +26,7 @@ export class WhatsAppInterceptor extends EventEmitter {
   private options: Required<InterceptorOptions>;
   private startTime: number;
   private isConnecting = false;
+  private groupNames = new Map<string, string>();
 
   constructor(options?: InterceptorOptions) {
     super();
@@ -253,6 +254,7 @@ export class WhatsAppInterceptor extends EventEmitter {
       pushName: m.pushName || undefined,
       isGroup,
       groupJid: isGroup ? remoteJid : undefined,
+      groupName: isGroup ? await this.getGroupName(remoteJid) : undefined,
       participantJid,
       lidJid,
     };
@@ -260,8 +262,13 @@ export class WhatsAppInterceptor extends EventEmitter {
     // Extract Message Content & Media Metadata
     const content = this.extractMessageContent(m.message);
 
-    // Skip empty protocol messages (like key distributions or edit history syncs)
-    if (content.type === 'protocol' && !content.text && !content.reaction) {
+    // Skip empty protocol messages (like key distributions or edit history syncs).
+    // Group deletes/edits are kept: they update the live boat availability board.
+    const isGroupRevokeOrEdit = isGroup && Boolean(content.revokedMessageId || content.editedMessageId);
+    if (content.type === 'protocol' && !content.text && !content.reaction && !isGroupRevokeOrEdit) {
+      return null;
+    }
+    if (content.type === 'protocol' && !isGroup) {
       return null;
     }
 
@@ -299,6 +306,22 @@ export class WhatsAppInterceptor extends EventEmitter {
     };
   }
 
+  /** Group subject, cached per group (one metadata request per group per process) */
+  private async getGroupName(groupJid: string): Promise<string | undefined> {
+    const cached = this.groupNames.get(groupJid);
+    if (cached) return cached;
+    try {
+      const meta = await this.socket?.groupMetadata(groupJid);
+      if (meta?.subject) {
+        this.groupNames.set(groupJid, meta.subject);
+        return meta.subject;
+      }
+    } catch {
+      // Metadata is best-effort; the group is still processed without a name
+    }
+    return undefined;
+  }
+
   /**
    * Helper to unravel WhatsApp message container types (ephemeral, viewOnce, etc.)
    */
@@ -309,6 +332,7 @@ export class WhatsAppInterceptor extends EventEmitter {
       rawMsg?.viewOnceMessage?.message ||
       rawMsg?.viewOnceMessageV2?.message ||
       rawMsg?.documentWithCaptionMessage?.message ||
+      rawMsg?.editedMessage?.message ||
       rawMsg;
 
     if (!msg) {
@@ -465,8 +489,22 @@ export class WhatsAppInterceptor extends EventEmitter {
       };
     }
 
-    // 12. Protocol Message (e.g., delete for everyone / revocation)
+    // 12. Protocol Message (e.g., delete for everyone / revocation / edit)
     if (msg.protocolMessage) {
+      const pm = msg.protocolMessage;
+      const targetId: string | undefined = pm.key?.id || undefined;
+
+      // type 0 = REVOKE ("delete for everyone")
+      if (pm.type === 0 && targetId) {
+        return { type: 'protocol', revokedMessageId: targetId, rawKeys: keys };
+      }
+
+      // type 14 = MESSAGE_EDIT, new content in editedMessage
+      if (pm.type === 14 && targetId && pm.editedMessage) {
+        const edited = this.extractMessageContent(pm.editedMessage);
+        return { type: 'protocol', text: edited.text, editedMessageId: targetId, rawKeys: keys };
+      }
+
       return {
         type: 'protocol',
         rawKeys: keys,

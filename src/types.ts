@@ -31,6 +31,8 @@ export interface MessageSender {
   participantJid?: string;
   /** WhatsApp LID if present */
   lidJid?: string;
+  /** Group subject/name if isGroup is true */
+  groupName?: string;
 }
 
 export interface MediaMetadata {
@@ -65,6 +67,10 @@ export interface MessageContent {
   location?: LocationData;
   reaction?: ReactionData;
   quotedMessageId?: string;
+  /** Set when this is a "delete for everyone" of another message */
+  revokedMessageId?: string;
+  /** Set when this is an edit of another message (text holds the new content) */
+  editedMessageId?: string;
   rawKeys?: string[];
 }
 
