@@ -17,6 +17,7 @@ import {
   isSkippableText,
   listingKey,
   normalizeText,
+  phoneFromJid,
   textHash,
   unionArrays,
 } from './market-utils.js';
@@ -147,6 +148,8 @@ export class MarketService {
 
     // 3. Resolve the operator (by phone in the post, else by sender)
     const phones = extractPhones(text);
+    const jidPhone = phoneFromJid(input.senderJid);
+    if (phones.length === 0 && jidPhone) phones.push(jidPhone);
     const operator = await this.resolveOperator({
       phones,
       senderJid: input.senderJid,
@@ -154,8 +157,9 @@ export class MarketService {
       boatNames: parsed.listings.map((l) => l.boat_name).filter((n): n is string => Boolean(n)),
     });
 
-    // 4. Apply supply and demand
-    const context = { operator, row, input, contactPhone: phones[0] ?? null };
+    // 4. Apply supply and demand — use sender's WhatsApp number when no phone in post
+    const contactPhone = phones[0] ?? phoneFromJid(input.senderJid) ?? null;
+    const context = { operator, row, input, contactPhone };
     const listingSummary = await this.applyListings(parsed.listings, context);
     const requestCount = await this.applyRequests(parsed.requests, context);
 

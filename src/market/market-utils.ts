@@ -55,6 +55,13 @@ export function extractPhones(text: string): string[] {
   return [...found];
 }
 
+/** Extract 10-digit Indian phone from a WhatsApp JID like "919876543210@s.whatsapp.net" */
+export function phoneFromJid(jid: string | undefined | null): string | null {
+  if (!jid) return null;
+  const match = jid.match(/^91(\d{10})@/);
+  return match?.[1] ?? null;
+}
+
 /** YYYY-MM-DD of an instant in IST */
 export function istDateOf(date: Date): string {
   return new Intl.DateTimeFormat('en-CA', {
